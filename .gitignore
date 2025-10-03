@@ -1,0 +1,24 @@
+.venv/
+__pycache__/
+*.py[cod]
+
+.pw-user-data/
+playwright-report/
+
+# Keep placeholder files while ignoring generated content
+reports/*
+!reports/.gitkeep
+
+downloads/*
+!downloads/.gitkeep
+
+# Local data caches
+reports/order_ids.txt
+reports/orders.csv
+
+# Packaging and local outputs
+dist/
+build/
+*.whl
+*.tar.gz
+
