@@ -1,4 +1,4 @@
-﻿[build-system]
+[build-system]
 requires = ["setuptools>=65", "wheel"]
 build-backend = "setuptools.build_meta"
 
@@ -6,11 +6,18 @@ build-backend = "setuptools.build_meta"
 name = "invoice-downloader"
 version = "0.1.0"
 description = "Bulk download Amazon invoices via Playwright"
-license = { file = "LICENSE" }`r`nreadme = "README.md"`r`nclassifiers = ["License :: OSI Approved :: MIT License", "Programming Language :: Python :: 3", "Operating System :: OS Independent"]`r`nrequires-python = ">=3.10"
+readme = "README.md"
+license = { file = "LICENSE" }
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+]
+requires-python = ">=3.10"
 dependencies = [
-    "pandas>=2.0",
-    "python-dateutil>=2.8.2",
-    "playwright>=1.45",
+  "pandas>=2.0",
+  "python-dateutil>=2.8.2",
+  "playwright>=1.45",
 ]
 
 [project.scripts]
@@ -21,4 +28,3 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
