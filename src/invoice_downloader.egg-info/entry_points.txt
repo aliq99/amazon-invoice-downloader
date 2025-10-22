@@ -1,2 +1,0 @@
-[console_scripts]
-invoice-downloader = invoice_downloader.__main__:main

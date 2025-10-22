@@ -24,7 +24,16 @@ dependencies = [
 invoice-downloader = "invoice_downloader.__main__:main"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = {"" = "apps/worker/src"}
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["apps/worker/src"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = ["pandas", "playwright.*"]
+ignore_missing_imports = true
