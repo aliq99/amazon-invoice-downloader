@@ -1,16 +1,19 @@
-﻿import argparse
+import argparse
 import asyncio
 import logging
 import re
 from contextlib import suppress
-from datetime import date, datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Literal, Optional
 from urllib.parse import urljoin
 
 import pandas as pd
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-from playwright.async_api import async_playwright
+from playwright.async_api import (
+    Locator,
+    Page,
+    TimeoutError as PlaywrightTimeoutError,
+    async_playwright,
+)
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 DOWNLOAD_DIR = BASE_DIR / "downloads"
@@ -26,6 +29,8 @@ INVOICE_DOWNLOAD_TIMEOUT_MS = 120_000
 PAGINATION_MAX_WAIT_MS = 45_000
 ORDER_ID_RE = re.compile(r"(\d{3}-\d{7}-\d{7})")
 ORDER_CARD_LOCATOR = "[data-testid='order-card'], [id^='ordersContainer'] section, .order, .a-box-group"
+
+WaitUntilState = Literal["commit", "domcontentloaded", "load", "networkidle"]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,12 +49,16 @@ def ensure_directories() -> None:
 def card_last4_regex(last4: str) -> re.Pattern[str]:
     escaped = re.escape(last4)
     pattern = rf"(?:[\\*\\u2022-])+\\s*{escaped}|{escaped}"
-    print(f"DEBUG: Regex pattern for {last4}: {pattern}")
+    log.debug("Regex pattern for %s: %s", last4, pattern)
     return re.compile(pattern)
 
 
 async def goto_with_login(
-    page, target_url: str, *, wait_until: str = "domcontentloaded", timeout: int = 60000
+    page: Page,
+    target_url: str,
+    *,
+    wait_until: WaitUntilState = "domcontentloaded",
+    timeout: int = 60000,
 ) -> None:
     for _ in range(2):
         await page.goto(target_url, wait_until=wait_until, timeout=timeout)
@@ -67,7 +76,7 @@ async def goto_with_login(
 
 
 async def collect_order_ids(
-    page, base_url: str, last4: Optional[str], year: Optional[int] = None
+    page: Page, base_url: str, last4: Optional[str], year: Optional[int] = None
 ) -> List[str]:
     if year:
         start_url = f"{base_url}/gp/your-account/order-history?orderFilter=year-{year}"
@@ -153,7 +162,7 @@ async def collect_order_ids(
     return gathered
 
 
-async def _download_invoice(page, invoice_locator, destination: Path) -> bool:
+async def _download_invoice(page: Page, invoice_locator: Locator, destination: Path) -> bool:
     with suppress(Exception):
         await invoice_locator.scroll_into_view_if_needed(timeout=5_000)
     try:
@@ -179,7 +188,7 @@ async def _download_invoice(page, invoice_locator, destination: Path) -> bool:
 
 
 async def download_invoice_for_order(
-    page, base_url: str, order_id: str, last4: Optional[str]
+    page: Page, base_url: str, order_id: str, last4: Optional[str]
 ) -> None:
     details_url = f"{base_url}/gp/your-account/order-details?orderID={order_id}"
 
@@ -386,14 +395,14 @@ async def download_invoice_for_order(
                             continue
 
                         for modal_idx, modal_url in enumerate(modal_urls, start=1):
-                            suffix_parts: List[str] = []
+                            modal_suffix_parts: List[str] = []
                             if link_count > 1:
-                                suffix_parts.append(str(idx + 1))
+                                modal_suffix_parts.append(str(idx + 1))
                             if len(modal_urls) > 1:
-                                suffix_parts.append(str(modal_idx))
+                                modal_suffix_parts.append(str(modal_idx))
 
                             label = f"modal invoice {modal_idx}/{len(modal_urls)}"
-                            await save_invoice_variant(modal_url, suffix_parts, label)
+                            await save_invoice_variant(modal_url, modal_suffix_parts, label)
 
                             if modal_idx < len(modal_urls):
                                 await goto_with_login(page, details_url, timeout=DETAIL_PAGE_TIMEOUT_MS)
@@ -468,15 +477,16 @@ def load_ids_from_csv(csv_path: Path, last4: str) -> List[str]:
         log.error("No order-id column found in CSV.")
         return []
 
-    order_ids = df[oid_col].dropna().drop_duplicates().tolist()
+    order_ids_series = df[oid_col].dropna().drop_duplicates()
+    order_ids: List[str] = [str(value) for value in order_ids_series.tolist()]
     if last4:
         matcher = card_last4_regex(last4)
         pay_cols = [c for c in df.columns if "payment" in c.lower()]
-        filtered = []
+        filtered: List[str] = []
         for _, row in df.iterrows():
             blob = " ".join(str(row[c]) for c in pay_cols)
             if matcher.search(blob):
-                filtered.append(row[oid_col])
+                filtered.append(str(row[oid_col]))
         order_ids = list(dict.fromkeys(filtered))
 
     log.info("CSV provided %s distinct order IDs.", len(order_ids))

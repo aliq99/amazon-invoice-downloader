@@ -1,96 +1,109 @@
-# Amazon Invoice Downloader
+# BossQ AI Workspace
 
-Automates downloading Amazon order invoices using Playwright. It can filter from an Order History report CSV or crawl your order history directly.
+The BossQ AI workspace now runs on a Supabase-backed foundation derived from the GrowNext starter. The childcare dashboards remain intact while authentication, organization management, and API services are provided by the new shared packages.
+
+## Project Layout
+
+```
+apps/
+  api/          Fastify API with Supabase auth + Prisma (placeholder during migration)
+  web/          Next.js 14 client (Supabase auth + BossQ childcare dashboards)
+  worker/       Playwright-based invoice automation worker (Python)
+packages/
+  core/         Env loading, logging, Supabase JWT helpers
+  db/           Prisma schema + organization/user services
+  contracts/    Shared Zod contracts (auth + BossQ domain types)
+  ui/           Shared component library & Tailwind preset
+  config/       tsconfig / eslint / vitest presets
+supabase/       Supabase CLI config.toml and seed data
+scripts/        Utility scripts (e.g. invoice_downloader maintenance helpers)
+```
 
 ## Prerequisites
-- Python 3.10 or newer
-- Google Chrome or Microsoft Edge installed (Chromium-based browser used by Playwright)
-- Amazon Order History Report CSV (optional but recommended)
 
-## Installation
-1. Create a virtual environment (optional but recommended):
-   ```powershell
-   python -m venv .venv
-   .\.venv\Scripts\activate
+- Node.js ≥ 20.11 (WSL recommended on Windows)
+- pnpm ≥ 8.15 (`corepack enable pnpm`)
+- Docker Desktop with WSL2 backend
+- Supabase CLI (`npm install -g supabase`)
+- Python ≥ 3.10 (for the BossQ invoice worker)
+
+## Initial Setup
+
+1. **Install dependencies**
+   ```bash
+   pnpm install
    ```
-2. Install the package and its dependencies:
-   ```powershell
-   pip install --upgrade pip
+2. **Python worker environment**
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
    pip install -e .
    playwright install
    ```
-   The `playwright install` command downloads the Chromium browser used by the script.
+3. **Environment variables**
+   - Copy `.env.example` → `.env` and fill in Supabase keys (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, etc.).
+   - Copy `apps/web/.env.local.example` → `apps/web/.env.local` for client-side overrides.
+   - Set `GEMINI_API_KEY` (optional) to re-enable the AI query demo.
+4. **Run Supabase locally**
+   ```bash
+   pnpm supabase:start
+   ```
+   The CLI spins up the Supabase Docker stack using `supabase/config.toml` and writes credentials to `supabase/.env`. Mirror those values into `.env` so the API, web client, and worker can connect.
+5. **Provision the database**
+   ```bash
+   pnpm db:generate
+   pnpm db:push
+   ```
+   This generates the Prisma client and pushes the GrowNext auth + organization schema into your local Supabase Postgres instance.
+6. **Start local services**
+   ```bash
+   pnpm api:dev    # Fastify API on http://localhost:3001
+   pnpm web:dev    # Next.js UI on http://localhost:3000
+   pnpm worker:dev # BossQ invoice worker (bridges to Python Playwright runner)
+   ```
+   Redis is expected on `redis://localhost:6379` (update `.env` to `redis://redis:6379` when running through Docker). When iterating on the Python worker directly, you can still run `python -m invoice_downloader` from `apps/worker`.
 
-## Usage
-You can run the tool either as a module or through the installed console script:
-```powershell
-python -m invoice_downloader --domain www.amazon.ca --start-date 2024-03-01 --end-date 2024-06-30
-# or
-invoice-downloader --domain www.amazon.ca --start-date 2024-03-01 --end-date 2024-06-30
+## Docker Workflow
+
+`Dockerfile.dev` plus `docker-compose.yml` provide a container-first dev setup:
+
+```bash
+docker compose up --build
 ```
 
-### Helpful flags
-- `--csv`: Path to the Amazon Order History CSV (defaults to `reports/orders.csv`).
-- `--last4`: Filter orders by the last four digits of the payment method.
-- `--start-date` / `--end-date`: Date range for filtering (YYYY-MM-DD).
-- `--headless`: Run the browser in headless mode (omit for first-time login).
-- `--force-crawl`: Skip CSV filtering and crawl order history pages directly.
+This mounts the workspace into dev containers that run `pnpm install` on demand and start the API, web, and worker services alongside a Redis container. Stop with `docker compose down`. Supabase still runs via `pnpm supabase:start`; expose it on `host.docker.internal` (see `.env.example`) so the containers can reach it.
 
-Downloaded invoices are saved into `downloads/`. The script caches the filtered order IDs in `reports/order_ids.txt` to avoid repeat work between runs.
+## Useful Scripts
 
-## Workflow Tips
-1. Generate an Amazon Order History Report for the desired date range and save it to `reports/orders.csv` (or point `--csv` to its location).
-2. Run the script and sign in when prompted. The browser profile is stored in `.pw-user-data` so future runs reuse the session.
-3. Rerun with `--force-crawl` if the CSV does not contain all orders or if you want to rely solely on on-page data.
+| Command | Description |
+| --- | --- |
+| `pnpm api:dev` | Start the Fastify API with tsx watcher |
+| `pnpm web:dev` | Start the Next.js dev server |
+| `pnpm worker:dev` | Start the BossQ Playwright worker bridge |
+| `python -m invoice_downloader` | Run the Python Playwright worker directly |
+| `pnpm worker:enqueue` | Enqueue a test job into the worker queue |
+| `pnpm db:generate` | Run `prisma generate` for `@bossq/db` |
+| `pnpm db:push` | Push Prisma schema into Supabase |
+| `pnpm supabase:start` / `pnpm supabase:stop` | Manage the local Supabase stack |
+| `pnpm build` | Turbo build for all workspaces |
+| `pnpm lint` | Turbo lint (Next.js lint still reports pre-existing UI issues) |
 
-## Troubleshooting
-- If the script closes immediately, rerun without `--headless` to watch the browser.
-- Use `--force-crawl` when no CSV is available. Crawling can take longer but works without the report.
-- If Playwright raises driver errors, rerun `playwright install` or `playwright install chromium`.
-- Delete `.pw-user-data` to force a fresh login if the stored profile becomes invalid.
+### Python worker quality checks
 
-## Development
-Run linting or type checks as preferred; no dedicated configuration is included yet. Contribution ideas include adding unit tests around CSV parsing, building a small CLI progress display, and expanding support for other marketplaces.
+Run the Playwright worker's static analysis locally before opening a pull request:
 
-## Quickstart
+```bash
+ruff check .
+mypy apps/worker/src
+```
 
-### Prerequisites
-- Python 3.10+
-- Google Chrome (or Chromium)
-- Playwright Python package and browsers
-  - Install package deps in your venv:
-    - pip install -e .
-  - Install Playwright browsers (first time only):
-    - python -m playwright install
+The `ruff` invocation sweeps the entire repository, while `mypy` focuses on the
+Python worker package that houses the invoice automation entrypoint.
 
-### Install
-- From GitHub (no clone):
-  - pip install "git+https://github.com/YOUR_USER/amazon-invoice-downloader.git"
-- Or from a local checkout:
-  - pip install -e .
+## Next Steps
 
-### Usage
-Run from the project root with your virtualenv active:
+- Replace mocked BossQ childcare data with Supabase queries using the new API endpoints.
+- Address remaining `next lint` warnings (`react/no-children-prop`, a11y click handlers, etc.).
+- Harden Docker for production (multi-stage build, prebuilt artifacts) once the dev flow is stable.
 
-`
-python -m invoice_downloader \
-  --domain www.amazon.ca \
-  --force-crawl \
-  --years 2024 2025 \
-  --last4 0859
-`
-
-Notes
-- Keep the browser window visible to sign in and complete MFA.
-- The crawler paginates all history for the years you pass and filters invoices by the card last four.
-- Multi-invoice orders are saved with numeric suffixes (e.g., _1, _1_2).
-- Downloads are written to downloads/ (already .gitignored).
-- If you need to target amazon.com, change --domain accordingly.
-
-### CLI Options (excerpt)
-- --domain (default www.amazon.ca): Amazon site.
-- --last4 (optional): Filter by card last-four.
-- --force-crawl: Ignore CSV seeding and crawl order history.
-- --years (e.g., 2024 2025): One or more years to crawl. Omit to use default history.
-- --headless: Run browser headless.
-
+Happy building!

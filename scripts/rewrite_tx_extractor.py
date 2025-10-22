@@ -1,7 +1,7 @@
 from pathlib import Path
 import textwrap
 
-path = Path("src/invoice_downloader/__main__.py")
+path = Path("apps/worker/src/invoice_downloader/__main__.py")
 text = path.read_text()
 
 old_block = textwrap.dedent('''
